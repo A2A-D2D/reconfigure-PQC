@@ -91,7 +91,6 @@ TB_PASS all 6 FE cases
 
 ## 后续方向
 
-- 用 Barrett/Montgomery reduction 替换 AE 中的通用 `%` 规约。
 - 增加统一配置寄存器和任务描述格式。
 - 增加 AE/FE 共享乘法资源或 offload 接口。
 - 将 FE 的 Q16.16 fixed-point datapath 扩展为目标浮点格式。
