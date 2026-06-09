@@ -19,6 +19,7 @@ module tb_reconfig_ae;
     reg                  use_mod;
     reg  [WORD_W-1:0]    modulus;
     reg  [(2*WORD_W)-1:0] mu_barrett;
+    reg  [4:0]            k_log2;
     reg  [WORD_W-1:0]    a;
     reg  [WORD_W-1:0]    b;
     reg  [WORD_W-1:0]    c;
@@ -30,18 +31,32 @@ module tb_reconfig_ae;
     integer error_count;
     integer test_count;
 
-    // Barrett constant:  mu = floor(2^64 / q)
-    // Uses 65-bit arithmetic for the numerator.  Result fits in 64 bits
-    // for all q >= 2.  For q <= 1, we return 0 (unused).
+    // ceil(log2(q)): bit-width of modulus (0 for q=0)
+    function [4:0] compute_k;
+        input [WORD_W-1:0] q;
+        integer i;
+        begin
+            compute_k = 5'd0;
+            for (i = 31; i >= 0; i = i - 1) begin
+                if (q[i] && (compute_k == 5'd0))
+                    compute_k = i + 1;
+            end
+        end
+    endfunction
+
+    // Barrett mu = floor(2^(2k) / q)  for k = ceil(log2(q))
     function [(2*WORD_W)-1:0] compute_mu;
         input [WORD_W-1:0] q;
-        reg [64:0] two64;
+        input [4:0]        k;
+        reg [95:0] num;
+        integer i;
         begin
-            if (q > 32'd1) begin
-                two64 = 65'h1_0000_0000_0000_0000;   // 2^64
-                compute_mu = two64 / q;
+            if (k > 0 && q > 32'd1) begin
+                // 2^(2k), built by setting bit 2k
+                num = 96'd0;
+                num[2*k] = 1'b1;
+                compute_mu = num / q;
             end else begin
-                // q = 0 or 1: Barrett not needed (result is 0 or x)
                 compute_mu = 64'd0;
             end
         end
@@ -58,13 +73,16 @@ module tb_reconfig_ae;
         .use_mod   (use_mod),
         .modulus   (modulus),
         .mu        (mu_barrett),
+        .k_log2    (k_log2),
         .a         (a),
         .b         (b),
         .c         (c),
         .w         (w),
         .valid_out (valid_out),
         .y0        (y0),
-        .y1        (y1)
+        .y1        (y1),
+        .acc_clr   (1'b0),
+        .acc_out   ()
     );
 
     always #5 clk = ~clk;
@@ -129,6 +147,8 @@ module tb_reconfig_ae;
         reg [63:0]         prod_btw;
         reg [63:0]         prod_addc;
         reg [63:0]         prod_subw;
+        reg [4:0]          k_val;
+        reg [63:0]         mu_val;
         begin
             a_r = ref_reduce({32'd0, t_a}, t_q, t_use_mod);
             b_r = ref_reduce({32'd0, t_b}, t_q, t_use_mod);
@@ -170,12 +190,16 @@ module tb_reconfig_ae;
                 end
             endcase
 
+            k_val  = compute_k(t_q);
+            mu_val = compute_mu(t_q, k_val);
+
             @(posedge clk);
             valid_in    <= 1'b1;
             mode        <= t_mode;
             use_mod     <= t_use_mod;
             modulus     <= t_q;
-            mu_barrett  <= compute_mu(t_q);
+            mu_barrett  <= mu_val;
+            k_log2      <= k_val;
             a           <= t_a;
             b           <= t_b;
             c           <= t_c;
@@ -186,6 +210,7 @@ module tb_reconfig_ae;
             use_mod     <= 1'b0;
             modulus     <= 32'd0;
             mu_barrett  <= 64'd0;
+            k_log2      <= 5'd0;
             a           <= 32'd0;
             b           <= 32'd0;
             c           <= 32'd0;
@@ -202,7 +227,7 @@ module tb_reconfig_ae;
                          t_mode, y0, y1, exp_y0, exp_y1);
                 $display("  inputs: a=%0d b=%0d c=%0d w=%0d q=%0d use_mod=%0d",
                          t_a, t_b, t_c, t_w, t_q, t_use_mod);
-                $display("  mu_barrett=%0d", compute_mu(t_q));
+                $display("  k=%0d mu=%0d", k_val, mu_val);
                 error_count = error_count + 1;
             end else begin
                 $display("TB_PASS mode=%0d y0=%0d y1=%0d", t_mode, y0, y1);
@@ -218,6 +243,7 @@ module tb_reconfig_ae;
         use_mod     = 1'b0;
         modulus     = 32'd0;
         mu_barrett  = 64'd0;
+        k_log2      = 5'd0;
         a           = 32'd0;
         b           = 32'd0;
         c           = 32'd0;
@@ -238,19 +264,17 @@ module tb_reconfig_ae;
         run_case(AE_MODE_BIG_MUL, 32'h1234_5678, 32'h0000_1001, 32'd0, 32'd0, 32'd0,  1'b0);
         run_case(AE_MODE_ADD_SUB, 32'd12300, 32'd24590, 32'd0,  32'd0,  32'd12289, 1'b1);
 
-        // Additional Barrett-stress cases: large modulus near 2^32,
-        // products near 2^64 to exercise Barrett's full-precision path
+        // Additional Barrett-stress cases
         // Falcon-ish: q=12289
         run_case(AE_MODE_MUL_ADD, 32'd10000, 32'd12000, 32'd500, 32'd0, 32'd12289, 1'b1);
         run_case(AE_MODE_CT_BFU,  32'd5000,  32'd8000,  32'd0,   32'd3, 32'd12289, 1'b1);
         // Dilithium-ish: q=8380417
         run_case(AE_MODE_GS_BFU,  32'd1000000, 32'd2000000, 32'd0,  32'd5, 32'd8380417, 1'b1);
         run_case(AE_MODE_ADD_MUL, 32'd3000000, 32'd4000000, 32'd7, 32'd0, 32'd8380417, 1'b1);
-        // Near-max modulus: q close to 2^31 to stress Barrett q3 width
+        // Near-max modulus: q close to 2^31
         run_case(AE_MODE_MUL_ADD, 32'd100, 32'd200, 32'd50, 32'd0, 32'h7FFF_FFFF, 1'b1);
         run_case(AE_MODE_CT_BFU,  32'd1000, 32'd2000, 32'd0, 32'd99, 32'h7FFF_FFFF, 1'b1);
-
-        // Edge: modulus near 2^15 (small), large products
+        // Small modulus, large products
         run_case(AE_MODE_MUL_ADD, 32'd32000, 32'd32000, 32'd100, 32'd0, 32'd32771, 1'b1);
 
         if (error_count == 0) begin

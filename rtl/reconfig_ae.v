@@ -10,14 +10,19 @@ module reconfig_ae #(
     input  wire [MODE_W-1:0]     mode,
     input  wire                  use_mod,
     input  wire [WORD_W-1:0]     modulus,
-    input  wire [(2*WORD_W)-1:0] mu,        // Barrett constant = floor(2^64 / modulus)
+    input  wire [(2*WORD_W)-1:0] mu,        // Barrett constant = floor(2^(2k) / modulus)
+    input  wire [4:0]            k_log2,    // ceil(log2(modulus)), 1..WORD_W
     input  wire [WORD_W-1:0]     a,
     input  wire [WORD_W-1:0]     b,
     input  wire [WORD_W-1:0]     c,
     input  wire [WORD_W-1:0]     w,
     output reg                   valid_out,
     output reg  [WORD_W-1:0]     y0,
-    output reg  [WORD_W-1:0]     y1
+    output reg  [WORD_W-1:0]     y1,
+
+    // P4: 64-bit multiply-accumulate for big-number multiplication
+    input  wire                  acc_clr,     // clear accumulator
+    output wire [(2*WORD_W)-1:0] acc_out      // accumulator value
 );
 
     localparam [MODE_W-1:0] AE_MODE_CT_BFU  = 3'd0;
@@ -26,6 +31,8 @@ module reconfig_ae #(
     localparam [MODE_W-1:0] AE_MODE_ADD_MUL = 3'd3;
     localparam [MODE_W-1:0] AE_MODE_ADD_SUB = 3'd4;
     localparam [MODE_W-1:0] AE_MODE_BIG_MUL = 3'd5;
+    localparam [MODE_W-1:0] AE_MODE_MUL_ACC = 3'd6;
+    localparam [MODE_W-1:0] AE_MODE_ACC_RD  = 3'd7;   // read accumulator to y0,y1
 
     // --------------------------------------------------------------------
     // Stage 0 registers
@@ -42,6 +49,9 @@ module reconfig_ae #(
     reg [(2*WORD_W)-1:0] mu_s0;
     reg [(2*WORD_W)-1:0] mu_s1;
     reg [(2*WORD_W)-1:0] mu_s2;
+    reg [4:0]            k_log2_s0;
+    reg [4:0]            k_log2_s1;
+    reg [4:0]            k_log2_s2;
     reg              valid_s0;
     reg              valid_s1;
     reg              valid_s2;
@@ -62,14 +72,22 @@ module reconfig_ae #(
     reg [WORD_W-1:0] add_ab_s0;
     reg [WORD_W-1:0] sub_ab_s0;
 
-    // Lightweight S0 reduction:  val mod q  for val < 2*q
+    // Lightweight S0 reduction:  val mod q
+    // Uses 3 conditional subtractions to cover val < 4*q (robust for
+    // inputs that are up to ~4x the modulus, which handles typical PQC
+    // coefficient ranges even before strict external pre-reduction).
     function [WORD_W-1:0] reduce_s0;
         input [WORD_W-1:0] val;
         input [WORD_W-1:0] mod_val;
         input              en;
+        reg [WORD_W-1:0]   tmp;
         begin
             if ((en == 1'b1) && (mod_val != {WORD_W{1'b0}})) begin
-                reduce_s0 = (val >= mod_val) ? (val - mod_val) : val;
+                tmp = val;
+                if (tmp >= mod_val) tmp = tmp - mod_val;
+                if (tmp >= mod_val) tmp = tmp - mod_val;
+                if (tmp >= mod_val) tmp = tmp - mod_val;
+                reduce_s0 = tmp;
             end else begin
                 reduce_s0 = val;
             end
@@ -115,6 +133,7 @@ module reconfig_ae #(
             use_mod_s0 <= 1'b0;
             modulus_s0 <= {WORD_W{1'b0}};
             mu_s0      <= {(2*WORD_W){1'b0}};
+            k_log2_s0  <= 5'd0;
             pre_a_s0   <= {WORD_W{1'b0}};
             pre_b_s0   <= {WORD_W{1'b0}};
             pre_c_s0   <= {WORD_W{1'b0}};
@@ -127,6 +146,7 @@ module reconfig_ae #(
             use_mod_s0 <= use_mod;
             modulus_s0 <= modulus;
             mu_s0      <= mu;
+            k_log2_s0  <= k_log2;
             pre_a_s0   <= reduce_s0(a, modulus, use_mod);
             pre_b_s0   <= reduce_s0(b, modulus, use_mod);
             pre_c_s0   <= reduce_s0(c, modulus, use_mod);
@@ -157,6 +177,7 @@ module reconfig_ae #(
             use_mod_s1  <= 1'b0;
             modulus_s1  <= {WORD_W{1'b0}};
             mu_s1       <= {(2*WORD_W){1'b0}};
+            k_log2_s1   <= 5'd0;
             pre_a_s1    <= {WORD_W{1'b0}};
             pre_b_s1    <= {WORD_W{1'b0}};
             pre_c_s1    <= {WORD_W{1'b0}};
@@ -173,6 +194,7 @@ module reconfig_ae #(
             use_mod_s1  <= use_mod_s0;
             modulus_s1  <= modulus_s0;
             mu_s1       <= mu_s0;
+            k_log2_s1   <= k_log2_s0;
             pre_a_s1    <= pre_a_s0;
             pre_b_s1    <= pre_b_s0;
             pre_c_s1    <= pre_c_s0;
@@ -209,6 +231,7 @@ module reconfig_ae #(
             use_mod_s2  <= 1'b0;
             modulus_s2  <= {WORD_W{1'b0}};
             mu_s2       <= {(2*WORD_W){1'b0}};
+            k_log2_s2   <= 5'd0;
             pre_a_s2    <= {WORD_W{1'b0}};
             pre_c_s2    <= {WORD_W{1'b0}};
             add_ab_s2   <= {WORD_W{1'b0}};
@@ -223,6 +246,7 @@ module reconfig_ae #(
             use_mod_s2  <= use_mod_s1;
             modulus_s2  <= modulus_s1;
             mu_s2       <= mu_s1;
+            k_log2_s2   <= k_log2_s1;
             pre_a_s2    <= pre_a_s1;
             pre_c_s2    <= pre_c_s1;
             add_ab_s2   <= add_ab_s1;
@@ -245,6 +269,7 @@ module reconfig_ae #(
         .x       (mul_main_s2),
         .q       (modulus_s2),
         .mu      (mu_s2),
+        .k_log2  (k_log2_s2),
         .use_mod (use_mod_s2),
         .result  (mod_mul_main)
     );
@@ -253,6 +278,7 @@ module reconfig_ae #(
         .x       (mul_btw_s2),
         .q       (modulus_s2),
         .mu      (mu_s2),
+        .k_log2  (k_log2_s2),
         .use_mod (use_mod_s2),
         .result  (mod_mul_btw)
     );
@@ -261,6 +287,7 @@ module reconfig_ae #(
         .x       (mul_addc_s2),
         .q       (modulus_s2),
         .mu      (mu_s2),
+        .k_log2  (k_log2_s2),
         .use_mod (use_mod_s2),
         .result  (mod_mul_addc)
     );
@@ -269,6 +296,7 @@ module reconfig_ae #(
         .x       (mul_subw_s2),
         .q       (modulus_s2),
         .mu      (mu_s2),
+        .k_log2  (k_log2_s2),
         .use_mod (use_mod_s2),
         .result  (mod_mul_subw)
     );
@@ -306,6 +334,31 @@ module reconfig_ae #(
     endfunction
 
     // --------------------------------------------------------------------
+    // P4: 64-bit Multiply-Accumulate register
+    //
+    // MUL_ACC mode (6): y0/y1 = a*b, then acc = acc + {y1,y0}  (or
+    //   acc = {y1,y0} if acc_clr is asserted alongside valid_in).
+    // ACC_RD mode (7):  y0 = acc[31:0], y1 = acc[63:32]  (read-only).
+    // acc_out provides combinational read access for lane chaining.
+    // --------------------------------------------------------------------
+    reg [(2*WORD_W)-1:0] acc_reg;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (rst_n == 1'b0) begin
+            acc_reg <= {(2*WORD_W){1'b0}};
+        end else if (valid_s2) begin
+            if (mode_s2 == AE_MODE_MUL_ACC) begin
+                if (acc_clr)
+                    acc_reg <= mul_main_s2;
+                else
+                    acc_reg <= acc_reg + mul_main_s2;
+            end
+        end
+    end
+
+    assign acc_out = acc_reg;
+
+    // --------------------------------------------------------------------
     // Output stage: mode-dependent result selection
     // --------------------------------------------------------------------
     always @(posedge clk or negedge rst_n) begin
@@ -315,6 +368,7 @@ module reconfig_ae #(
             y1        <= {WORD_W{1'b0}};
         end else begin
             valid_out <= valid_s2;
+            if (valid_s2) begin
             case (mode_s2)
                 AE_MODE_CT_BFU: begin
                     y0 <= add_mod_s2(pre_a_s2, mod_mul_btw, modulus_s2, use_mod_s2);
@@ -340,11 +394,20 @@ module reconfig_ae #(
                     y0 <= mul_main_s2[WORD_W-1:0];
                     y1 <= mul_main_s2[(2*WORD_W)-1:WORD_W];
                 end
+                AE_MODE_MUL_ACC: begin
+                    y0 <= mul_main_s2[WORD_W-1:0];
+                    y1 <= mul_main_s2[(2*WORD_W)-1:WORD_W];
+                end
+                AE_MODE_ACC_RD: begin
+                    y0 <= acc_reg[WORD_W-1:0];
+                    y1 <= acc_reg[(2*WORD_W)-1:WORD_W];
+                end
                 default: begin
                     y0 <= {WORD_W{1'b0}};
                     y1 <= {WORD_W{1'b0}};
                 end
             endcase
+            end
         end
     end
 
