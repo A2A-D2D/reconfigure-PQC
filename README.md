@@ -1,106 +1,98 @@
-# 可重构后量子密码处理器
+# 可重构
 
-基于 ISSCC 论文 *"A 28nm 69.4kOPS 4.4uJ/Op Versatile Post-Quantum Crypto-Processor Across Multiple Mathematical Problems"* 中 Arithmetic Cluster / AE Array 思路实现的可综合 Verilog-2001 原型。
+这是一个面向后量子密码计算的可重构运算原型工程。核心目标不是为某一个算法写死专用 datapath，而是把常见运算抽象成可配置、可并行、可复用的计算单元阵列，让不同算法通过 `mode`、参数和调度选择同一组硬件资源。
 
-## 架构总览
+## 设计理念
 
-```
-┌─────────────────────────────────────────────────────┐
-│                    useq_core (P5)                    │
-│                 微码序列器 / 控制单元                   │
-├─────────────────────────────────────────────────────┤
-│  ┌───────────────────────────────────────────────┐  │
-│  │          reconfig_ae_array (32 lanes)          │  │
-│  │  ┌─────────┐ ┌─────────┐     ┌─────────┐     │  │
-│  │  │ u_ae_0  │ │ u_ae_1  │ ... │ u_ae_31 │     │  │
-│  │  │ Barrett │ │ Barrett │     │ Barrett │     │  │
-│  │  │ MUL_ACC │ │ MUL_ACC │     │ MUL_ACC │     │  │
-│  │  └─────────┘ └─────────┘     └─────────┘     │  │
-│  │       ▲            ▲               ▲          │  │
-│  │       └────────────┴───────────────┘          │  │
-│  │              shuffle_net (P2)                 │  │
-│  ├───────────────────────────────────────────────┤  │
-│  │         ae_regfile × 32 (P3)                  │  │
-│  │         本地寄存器文件 8×32-bit per lane         │  │
-│  └───────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-```
+后量子密码算法虽然参数和数学结构不同，但底层会反复出现几类高频运算：
 
-## 模块清单
+- 模加、模减、模乘、butterfly。
+- 多精度整数乘法和乘加。
+- 复数加减、复数乘、FFT butterfly。
+- 不同 lane 数量下的向量化 coefficient 处理。
 
-| 文件 | 层级 | 说明 |
-|------|------|------|
-| `rtl/barrett_reduce.v` | P0 | 自适应 Barrett 模约减 (替代 `%`) |
-| `rtl/reconfig_ae.v` | P0+P4 | 单 AE: 8 模式 + 64-bit 乘累加器 |
-| `rtl/reconfig_ae_array.v` | P1 | 32-lane 固定例化阵列, per-lane mode |
-| `rtl/shuffle_net.v` | P2 | Lane 间可配置 shuffle 互联网络 |
-| `rtl/ae_regfile.v` | P3 | 本地寄存器文件 (8×32, 2R1W) |
-| `rtl/reconfig_ae_rf.v` | P3 | AE + RF 封装 lane |
-| `rtl/useq_core.v` | P5 | 微码序列器核心 (循环栈 / PC 控制) |
+因此本工程把运算层拆成两类单元：
 
-## AE 模式
+- AE: Arithmetic Element，处理整数域和模域中的系数级运算。
+- FE: Floating/Field Element，处理复数域、FFT 风格和固定点/浮点风格运算。
 
-| mode | 名称 | y0 | y1 |
-|:----:|------|-----|-----|
-| 0 | CT-BFU | `a + b·w mod q` | `a - b·w mod q` |
-| 1 | GS-BFU | `a + b mod q` | `(a - b)·w mod q` |
-| 2 | MUL-ADD | `a·b + c mod q` | `a·b mod q` |
-| 3 | ADD-MUL | `(a+b)·c mod q` | `a+b mod q` |
-| 4 | ADD-SUB | `a+b mod q` | `a-b mod q` |
-| 5 | BIG-MUL | `low32(a·b)` | `high32(a·b)` |
-| 6 | MUL-ACC | `low32(a·b)` | `high32(a·b)` |
-| 7 | ACC-RD | `acc[31:0]` | `acc[63:32]` |
+AE 和 FE 都使用简单的 valid 流水接口，并提供 array wrapper。上层调度器可以把一组 coefficient 或 complex value 分发到多个 lane 中并行执行，从而形成可重构的 arithmetic cluster。
 
-## shuffle_net 模式
+## AE 是什么
 
-| mode | 操作 | NTT 用途 |
-|:----:|------|---------|
-| 0 | Passthrough | 直通 |
-| 1 | XOR Shuffle | Butterfly 配对 |
-| 2 | Bit Reverse | 最终重排序 |
-| 3 | Rotate | 通用搬移 |
+AE 是整数/模运算单元，适合处理 prime field、binary/integer datapath 和 NTT 类运算中的系数级操作。
+
+当前 `reconfig_ae` 支持：
+
+- `CT-BFU`: Cooley-Tukey butterfly，输出 `a + b*w` 和 `a - b*w`。
+- `GS-BFU`: Gentleman-Sande butterfly，输出 `a + b` 和 `(a - b)*w`。
+- `MUL-ADD`: 输出 `a*b + c` 和 `a*b`。
+- `ADD-MUL`: 输出 `(a+b)*c` 和 `a+b`。
+- `ADD-SUB`: 输出 `a+b` 和 `a-b`。
+- `BIG-MUL`: 输出 64-bit 乘积的低 32 bit 和高 32 bit。
+
+`reconfig_ae_array` 默认实例化 32 个 AE lane，适合 coefficient-level 并行。
+
+## FE 是什么
+
+FE 是复数/固定点运算单元，适合处理 FFT、complex butterfly、复数乘加和后续可替换为浮点 FPU 的运算路径。
+
+当前 `reconfig_fe` 使用 signed Q16.16 fixed-point 表达复数值，支持：
+
+- `CADD`: 复数加。
+- `CSUB`: 复数减。
+- `CMUL`: 复数乘。
+- `CMAC`: 复数乘加。
+- `FFT-BFU`: 输出 `a + b*w` 和 `a - b*w`。
+- `SCALAR-MUL`: 复数乘实数标量。
+
+`reconfig_fe_array` 默认实例化 8 个 FE lane，适合向量化 FFT/complex datapath。
+
+## 文件结构
+
+- `rtl/reconfig_ae.v`: 单 lane AE。
+- `rtl/reconfig_ae_array.v`: AE 阵列，默认 32 lane。
+- `rtl/reconfig_fe.v`: 单 lane FE。
+- `rtl/reconfig_fe_array.v`: FE 阵列，默认 8 lane。
+- `rtl/barrett_reduce.v`: Barrett 模约减模块，供后续替换通用 `%` 路径。
+- `rtl/filelist.f`: RTL filelist。
+- `tb/tb_reconfig_ae.v`: AE 自检 testbench。
+- `tb/tb_reconfig_fe.v`: FE 自检 testbench。
+- `doc/ae_design_notes.md`: AE 设计说明。
+- `doc/fe_design_notes.md`: FE 设计说明。
 
 ## 快速仿真
 
+AE:
+
 ```powershell
-# P0: 单 AE 全模式测试
-iverilog -g2001 -o sim/tb_ae.vvp rtl/barrett_reduce.v rtl/reconfig_ae.v tb/tb_reconfig_ae.v
-vvp sim/tb_ae.vvp
-
-# P1+P2: 阵列 + shuffle + NTT butterfly
-iverilog -g2001 -o sim/tb_bfly.vvp rtl/barrett_reduce.v rtl/reconfig_ae.v rtl/reconfig_ae_array.v rtl/shuffle_net.v tb/tb_ntt_butterfly_stage.v
-vvp sim/tb_bfly.vvp
-
-# P3: 多阶段 NTT + 寄存器文件
-iverilog -g2001 -o sim/tb_p3.vvp rtl/barrett_reduce.v rtl/reconfig_ae.v rtl/ae_regfile.v rtl/reconfig_ae_rf.v rtl/shuffle_net.v tb/tb_ntt_multistage_rf.v
-vvp sim/tb_p3.vvp
-
-# P4: 字级大数乘法 (MUL_ACC)
-iverilog -g2001 -o sim/tb_p4.vvp rtl/barrett_reduce.v rtl/reconfig_ae.v tb/tb_wide_mul.v
-vvp sim/tb_p4.vvp
-
-# P5: 微码序列器
-iverilog -g2001 -o sim/tb_p5.vvp rtl/useq_core.v rtl/barrett_reduce.v rtl/reconfig_ae.v tb/tb_useq_ntt.v
-vvp sim/tb_p5.vvp
+iverilog -g2001 -o sim/tb_reconfig_ae.vvp rtl/reconfig_ae.v tb/tb_reconfig_ae.v
+vvp sim/tb_reconfig_ae.vvp
 ```
 
-## 测试结果
+期望输出：
 
-| 层级 | 功能 | 测试文件 | 检查数 |
-|:----:|------|------|:------:|
-| P0 | Barrett 模约减 + 6 模式 | `tb_reconfig_ae.v` | 14 |
-| P1 | Per-lane 独立 mode | `tb_reconfig_ae_array.v` | 16 |
-| P2 | Shuffle + NTT butterfly | `tb_ntt_butterfly_stage.v` | 12 |
-| P3 | 本地 RF + 多阶段 NTT | `tb_ntt_multistage_rf.v` | 6 |
-| P4 | MUL_ACC 大字长乘法 | `tb_wide_mul.v` | 9 |
-| P5 | 微码序列器 | `tb_useq_ntt.v` | 2 |
-| **合计** | | | **59** |
+```text
+TB_PASS all 7 cases
+```
 
-## 设计边界
+FE:
 
-当前实现覆盖论文 AE cluster 的核心可重构特性。以下为已知边界：
+```powershell
+iverilog -g2001 -o sim/tb_reconfig_fe.vvp rtl/reconfig_fe.v tb/tb_reconfig_fe.v
+vvp sim/tb_reconfig_fe.vvp
+```
 
-- **模约减**: 使用自适应 Barrett (P0), `k` 和 `mu` 由外部预计算输入。尚未实现 Montgomery reduction
-- **S0 输入约减**: 轻量条件减法 (3 次), 假设输入已大致约减。全精度需走 Barrett 路径
-- **Carry 级联**: 累加器已实现 (P4), lane 间 carry chain 端口预留但未互联
-- **FE (Front-End)**: 顶层控制 / DMA / 地址生成尚未实现
+期望输出：
+
+```text
+TB_PASS all 6 FE cases
+```
+
+## 后续方向
+
+- 用 Barrett/Montgomery reduction 替换 AE 中的通用 `%` 规约。
+- 增加统一配置寄存器和任务描述格式。
+- 增加 AE/FE 共享乘法资源或 offload 接口。
+- 将 FE 的 Q16.16 fixed-point datapath 扩展为目标浮点格式。
+- 增加 top-level arithmetic cluster，把 AE array、FE array、buffer 和 scheduler 接起来。
