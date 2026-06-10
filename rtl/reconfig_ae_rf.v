@@ -17,7 +17,7 @@
 
 module reconfig_ae_rf #(
     parameter WORD_W = 32,
-    parameter MODE_W = 3,
+    parameter MODE_W = 4,
     parameter DEPTH  = 8,
     parameter ADDR_W = 3
 ) (
@@ -30,6 +30,7 @@ module reconfig_ae_rf #(
     input  wire                  use_mod,
     input  wire [WORD_W-1:0]     modulus,
     input  wire [(2*WORD_W)-1:0] mu,
+    input  wire [WORD_W-1:0]     mu_mont,   // Montgomery constant
     input  wire [4:0]            k_log2,
 
     // --- External operand ports (c, w always from here) ---
@@ -92,6 +93,7 @@ module reconfig_ae_rf #(
         .use_mod   (use_mod),
         .modulus   (modulus),
         .mu        (mu),
+        .mu_mont   (mu_mont),
         .k_log2    (k_log2),
         .a         (ae_a),
         .b         (ae_b),

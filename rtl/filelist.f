@@ -1,7 +1,12 @@
 rtl/barrett_reduce.v
+rtl/montgomery_reduce.v
 rtl/shuffle_net.v
 rtl/ae_regfile.v
 rtl/useq_core.v
 rtl/reconfig_ae.v
 rtl/reconfig_ae_array.v
 rtl/reconfig_ae_rf.v
+rtl/reconfig_ntt_operator.v
+rtl/reconfig_fe.v
+rtl/reconfig_fe_array.v
+rtl/reconfig_fft_operator.v
