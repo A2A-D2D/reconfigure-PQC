@@ -22,4 +22,5 @@ rtl/reconfig_fft_f64_operator.v
 rtl/reconfig_fft_f64_pipe_operator.v
 rtl/reconfig_fe_f64_shared_array.v
 rtl/reconfig_fft_f64_shared_operator.v
+rtl/spuv3_vpu_fe_mem_pack.v
 rtl/spuv3_vpu_fe_f64_wrap.v

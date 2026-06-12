@@ -65,6 +65,7 @@ Cycle 0       Cycle 1         Cycle 2          Cycle 3
 | File | Description |
 |------|-------------|
 | [`rtl/spuv3_vpu_fe_f64_wrap.v`](rtl/spuv3_vpu_fe_f64_wrap.v) | SPUV3 320-bit VR / VMASK adapter for Falcon f64 FFT |
+| [`rtl/spuv3_vpu_fe_mem_pack.v`](rtl/spuv3_vpu_fe_mem_pack.v) | 256-bit DLM/DPRAM row packer for 320-bit VR/FE vectors |
 | [`rtl/reconfig_fft_f64_shared_operator.v`](rtl/reconfig_fft_f64_shared_operator.v) | Area-oriented f64 FFT operator using shared FE |
 | [`rtl/reconfig_fe_f64_shared_array.v`](rtl/reconfig_fe_f64_shared_array.v) | Shared f64 FE array with lane mask and backpressure |
 | [`rtl/reconfig_fft_f64_pipe_operator.v`](rtl/reconfig_fft_f64_pipe_operator.v) | Higher-throughput pipelined f64 FFT operator |
@@ -91,6 +92,7 @@ Cycle 0       Cycle 1         Cycle 2          Cycle 3
 | [`tb/tb_mldsa_ae.v`](tb/tb_mldsa_ae.v) | ML-DSA (FIPS 204) arithmetic verification |
 | [`tb/tb_reconfig_ntt_operator.v`](tb/tb_reconfig_ntt_operator.v) | NTT operator 32-lane verification (Falcon q=12289) |
 | [`tb/tb_spuv3_vpu_fe_f64_wrap.v`](tb/tb_spuv3_vpu_fe_f64_wrap.v) | SPUV3 VMASK/VR adapter verification |
+| [`tb/tb_spuv3_vpu_fe_mem_pack.v`](tb/tb_spuv3_vpu_fe_mem_pack.v) | 256-bit memory row to 320-bit vector pack/unpack verification |
 | [`tb/tb_reconfig_fft_f64_shared_operator.v`](tb/tb_reconfig_fft_f64_shared_operator.v) | Shared f64 FFT operator verification |
 | [`tb/tb_reconfig_fe_f64_shared_array.v`](tb/tb_reconfig_fe_f64_shared_array.v) | Shared f64 FE array verification |
 
@@ -205,6 +207,11 @@ iverilog -g2001 -o sim/tb_spuv3_vpu_fe_f64_wrap.vvp \
   rtl/reconfig_fe_f64_shared_array.v rtl/reconfig_fft_f64_shared_operator.v \
   rtl/spuv3_vpu_fe_f64_wrap.v tb/tb_spuv3_vpu_fe_f64_wrap.v && \
   vvp sim/tb_spuv3_vpu_fe_f64_wrap.vvp
+
+# SPUV3 256-bit memory row packer for 320-bit FE vectors
+iverilog -g2001 -o sim/tb_spuv3_vpu_fe_mem_pack.vvp \
+  rtl/spuv3_vpu_fe_mem_pack.v tb/tb_spuv3_vpu_fe_mem_pack.v && \
+  vvp sim/tb_spuv3_vpu_fe_mem_pack.vvp
 ```
 
 ## NTT Performance
