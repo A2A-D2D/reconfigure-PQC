@@ -8,18 +8,19 @@
 module tb_ntt_multistage_rf;
 
     localparam WORD_W = 32;
-    localparam MODE_W = 3;
+    localparam MODE_W = 4;
     localparam DEPTH  = 4;
     localparam ADDR_W = 2;
     localparam LANES  = 2;
     localparam CLOG2  = 1;
 
-    localparam [MODE_W-1:0] M_CT_BFU  = 3'd0;
-    localparam [MODE_W-1:0] M_ADD_SUB = 3'd4;
+    localparam [MODE_W-1:0] M_CT_BFU  = 4'd0;
+    localparam [MODE_W-1:0] M_ADD_SUB = 4'd4;
 
     reg                  clk, rst_n, valid_in, use_mod;
     reg  [WORD_W-1:0]    modulus;
     reg  [(2*WORD_W)-1:0] mu_val;
+    reg  [WORD_W-1:0]    mu_mont;
     reg  [4:0]           k_val;
 
     // Lane 0
@@ -60,7 +61,7 @@ module tb_ntt_multistage_rf;
     // DUTs
     reconfig_ae_rf #(.WORD_W(WORD_W),.MODE_W(MODE_W),.DEPTH(DEPTH),.ADDR_W(ADDR_W)) u0 (
         .clk(clk),.rst_n(rst_n),.valid_in(valid_in),.mode(m_0),
-        .use_mod(use_mod),.modulus(modulus),.mu(mu_val),.k_log2(k_val),
+        .use_mod(use_mod),.modulus(modulus),.mu(mu_val),.mu_mont(mu_mont),.k_log2(k_val),
         .ext_a(ea_0),.ext_b(eb_0),.ext_c(ec_0),.ext_w(ew_0),
         .rf_raddr_a(ra0_0),.rf_raddr_b(ra1_0),
         .use_rf_a(ua_0),.use_rf_b(ub_0),
@@ -71,7 +72,7 @@ module tb_ntt_multistage_rf;
     );
     reconfig_ae_rf #(.WORD_W(WORD_W),.MODE_W(MODE_W),.DEPTH(DEPTH),.ADDR_W(ADDR_W)) u1 (
         .clk(clk),.rst_n(rst_n),.valid_in(valid_in),.mode(m_1),
-        .use_mod(use_mod),.modulus(modulus),.mu(mu_val),.k_log2(k_val),
+        .use_mod(use_mod),.modulus(modulus),.mu(mu_val),.mu_mont(mu_mont),.k_log2(k_val),
         .ext_a(ea_1),.ext_b(eb_1),.ext_c(ec_1),.ext_w(ew_1),
         .rf_raddr_a(ra0_1),.rf_raddr_b(ra1_1),
         .use_rf_a(ua_1),.use_rf_b(ub_1),
@@ -161,7 +162,7 @@ module tb_ntt_multistage_rf;
 
     initial begin
         clk=1'b0; rst_n=1'b0; valid_in=1'b0; use_mod=1'b0;
-        modulus=32'd0; mu_val=64'd0; k_val=5'd0;
+        modulus=32'd0; mu_val=64'd0; mu_mont=32'd0; k_val=5'd0;
         m_0=0; m_1=0; ea_0=0; ec_0=0; ew_0=0;
         ea_1=0; ec_1=0; ew_1=0;
         ra0_0=0; ra1_0=0; wa_0=0; ua_0=0; ub_0=0; we_0=0; ws_0=0;

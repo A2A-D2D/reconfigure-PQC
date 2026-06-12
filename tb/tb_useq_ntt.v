@@ -19,12 +19,12 @@
 module tb_useq_ntt;
 
     localparam WORD_W = 32;
-    localparam MODE_W = 3;
+    localparam MODE_W = 4;
     localparam AW     = 5;    // sequencer address width
     localparam LW     = 8;    // loop counter width
 
-    localparam [MODE_W-1:0] M_MUL_ACC = 3'd6;
-    localparam [MODE_W-1:0] M_ACC_RD  = 3'd7;
+    localparam [MODE_W-1:0] M_MUL_ACC = 4'd6;
+    localparam [MODE_W-1:0] M_ACC_RD  = 4'd7;
 
     // ---- μProgram ROM ----
     // Opcode encoding: 0=EXEC, 1=LOOP_BEG, 2=LOOP_END, 3=HALT
@@ -78,7 +78,7 @@ module tb_useq_ntt;
 
     reconfig_ae #(.WORD_W(WORD_W), .MODE_W(MODE_W)) u_ae (
         .clk(clk), .rst_n(rst_n), .valid_in(valid_in), .mode(ae_mode),
-        .use_mod(1'b0), .modulus(32'd0), .mu(64'd0), .k_log2(5'd0),
+        .use_mod(1'b0), .modulus(32'd0), .mu(64'd0), .mu_mont(32'd0), .k_log2(5'd0),
         .a(a), .b(b), .c(32'd0), .w(32'd0),
         .valid_out(valid_out), .y0(y0), .y1(y1),
         .acc_clr(acc_clr), .acc_out(acc_out)

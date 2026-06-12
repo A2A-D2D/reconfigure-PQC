@@ -3,14 +3,14 @@
 module tb_reconfig_ae;
 
     localparam WORD_W = 32;
-    localparam MODE_W = 3;
+    localparam MODE_W = 4;
 
-    localparam [MODE_W-1:0] AE_MODE_CT_BFU  = 3'd0;
-    localparam [MODE_W-1:0] AE_MODE_GS_BFU  = 3'd1;
-    localparam [MODE_W-1:0] AE_MODE_MUL_ADD = 3'd2;
-    localparam [MODE_W-1:0] AE_MODE_ADD_MUL = 3'd3;
-    localparam [MODE_W-1:0] AE_MODE_ADD_SUB = 3'd4;
-    localparam [MODE_W-1:0] AE_MODE_BIG_MUL = 3'd5;
+    localparam [MODE_W-1:0] AE_MODE_CT_BFU  = 4'd0;
+    localparam [MODE_W-1:0] AE_MODE_GS_BFU  = 4'd1;
+    localparam [MODE_W-1:0] AE_MODE_MUL_ADD = 4'd2;
+    localparam [MODE_W-1:0] AE_MODE_ADD_MUL = 4'd3;
+    localparam [MODE_W-1:0] AE_MODE_ADD_SUB = 4'd4;
+    localparam [MODE_W-1:0] AE_MODE_BIG_MUL = 4'd5;
 
     reg                  clk;
     reg                  rst_n;
@@ -19,6 +19,7 @@ module tb_reconfig_ae;
     reg                  use_mod;
     reg  [WORD_W-1:0]    modulus;
     reg  [(2*WORD_W)-1:0] mu_barrett;
+    reg  [WORD_W-1:0]    mu_mont;
     reg  [4:0]            k_log2;
     reg  [WORD_W-1:0]    a;
     reg  [WORD_W-1:0]    b;
@@ -73,6 +74,7 @@ module tb_reconfig_ae;
         .use_mod   (use_mod),
         .modulus   (modulus),
         .mu        (mu_barrett),
+        .mu_mont   (mu_mont),
         .k_log2    (k_log2),
         .a         (a),
         .b         (b),
@@ -243,6 +245,7 @@ module tb_reconfig_ae;
         use_mod     = 1'b0;
         modulus     = 32'd0;
         mu_barrett  = 64'd0;
+        mu_mont     = 32'd0;
         k_log2      = 5'd0;
         a           = 32'd0;
         b           = 32'd0;

@@ -7,21 +7,22 @@
 module tb_reconfig_ae_array;
 
     localparam WORD_W = 32;
-    localparam MODE_W = 3;
+    localparam MODE_W = 4;
     localparam LANES  = 32;
 
-    localparam [MODE_W-1:0] M_CT_BFU  = 3'd0;
-    localparam [MODE_W-1:0] M_GS_BFU  = 3'd1;
-    localparam [MODE_W-1:0] M_MUL_ADD = 3'd2;
-    localparam [MODE_W-1:0] M_ADD_MUL = 3'd3;
-    localparam [MODE_W-1:0] M_ADD_SUB = 3'd4;
-    localparam [MODE_W-1:0] M_BIG_MUL = 3'd5;
+    localparam [MODE_W-1:0] M_CT_BFU  = 4'd0;
+    localparam [MODE_W-1:0] M_GS_BFU  = 4'd1;
+    localparam [MODE_W-1:0] M_MUL_ADD = 4'd2;
+    localparam [MODE_W-1:0] M_ADD_MUL = 4'd3;
+    localparam [MODE_W-1:0] M_ADD_SUB = 4'd4;
+    localparam [MODE_W-1:0] M_BIG_MUL = 4'd5;
 
     reg                 clk, rst_n, valid_in;
-    reg  [95:0]         mode_vec;
+    reg  [127:0]        mode_vec;
     reg                 use_mod;
     reg  [31:0]         modulus;
     reg  [63:0]         mu_barrett;
+    reg  [31:0]         mu_mont;
     reg  [4:0]          k_log2;
     reg  [1023:0]       a_vec, b_vec, c_vec, w_vec;
     wire                valid_out;
@@ -30,7 +31,7 @@ module tb_reconfig_ae_array;
 
     reconfig_ae_array dut (
         .clk(clk), .rst_n(rst_n), .valid_in(valid_in), .mode_vec(mode_vec),
-        .use_mod(use_mod), .modulus(modulus), .mu(mu_barrett), .k_log2(k_log2),
+        .use_mod(use_mod), .modulus(modulus), .mu(mu_barrett), .mu_mont(mu_mont), .k_log2(k_log2),
         .a_vec(a_vec), .b_vec(b_vec), .c_vec(c_vec), .w_vec(w_vec),
         .valid_out(valid_out), .y0_vec(y0_vec), .y1_vec(y1_vec),
         .acc_clr(1'b0), .acc_out_vec(acc_out_vec)
@@ -50,11 +51,11 @@ module tb_reconfig_ae_array;
         end
     endfunction
 
-    function [95:0] set_mode;
-        input integer ln; input [2:0] m;
+    function [127:0] set_mode;
+        input integer ln; input [3:0] m;
         begin
-            set_mode = {96{1'b0}};
-            set_mode[ln*3 +: 3] = m;
+            set_mode = {128{1'b0}};
+            set_mode[ln*4 +: 4] = m;
         end
     endfunction
 
@@ -75,7 +76,7 @@ module tb_reconfig_ae_array;
     endfunction
 
     task ref_ae;
-        input [2:0]  m; input [31:0] a,b,c,w,q; input en;
+        input [3:0]  m; input [31:0] a,b,c,w,q; input en;
         output [31:0] y0,y1;
         reg [31:0] ar,br,cr,wr;
         reg [63:0] pm,pb,pa,ps;
@@ -96,7 +97,7 @@ module tb_reconfig_ae_array;
     endtask
 
     task check_lane;
-        input integer ln; input [2:0] m;
+        input integer ln; input [3:0] m;
         input [31:0] a,b,c,w,q; input en;
         reg [31:0] ey0,ey1,dy0,dy1;
         begin
@@ -110,8 +111,8 @@ module tb_reconfig_ae_array;
     endtask
 
     initial begin
-        clk=1'b0; rst_n=1'b0; valid_in=1'b0; mode_vec=96'd0; use_mod=1'b0;
-        modulus=0; mu_barrett=0; k_log2=0; a_vec=0; b_vec=0; c_vec=0; w_vec=0;
+        clk=1'b0; rst_n=1'b0; valid_in=1'b0; mode_vec=128'd0; use_mod=1'b0;
+        modulus=0; mu_barrett=0; mu_mont=0; k_log2=0; a_vec=0; b_vec=0; c_vec=0; w_vec=0;
         errors=0; tests=0;
 
         repeat(4) @(posedge clk); rst_n=1'b1; repeat(2) @(posedge clk);

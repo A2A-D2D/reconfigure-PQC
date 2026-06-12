@@ -6,15 +6,16 @@
 module tb_ntt_butterfly_stage;
 
     localparam WORD_W = 32;
-    localparam MODE_W = 3;
+    localparam MODE_W = 4;
 
-    localparam [MODE_W-1:0] M_CT_BFU = 3'd0;
+    localparam [MODE_W-1:0] M_CT_BFU = 4'd0;
 
     reg                 clk, rst_n, valid_in;
-    reg  [95:0]         mode_vec;
+    reg  [127:0]        mode_vec;
     reg                 use_mod;
     reg  [31:0]         modulus;
     reg  [63:0]         mu_val;
+    reg  [31:0]         mu_mont;
     reg  [4:0]          k_val;
     reg  [1023:0]       a_vec, b_vec, c_vec, w_vec;
     wire                valid_out;
@@ -27,7 +28,7 @@ module tb_ntt_butterfly_stage;
 
     reconfig_ae_array dut (
         .clk(clk),.rst_n(rst_n),.valid_in(valid_in),.mode_vec(mode_vec),
-        .use_mod(use_mod),.modulus(modulus),.mu(mu_val),.k_log2(k_val),
+        .use_mod(use_mod),.modulus(modulus),.mu(mu_val),.mu_mont(mu_mont),.k_log2(k_val),
         .a_vec(a_vec),.b_vec(b_vec),.c_vec(c_vec),.w_vec(w_vec),
         .valid_out(valid_out),.y0_vec(y0_vec),.y1_vec(y1_vec),
         .acc_clr(1'b0),.acc_out_vec(acc_out)
@@ -119,8 +120,8 @@ module tb_ntt_butterfly_stage;
     endtask
 
     initial begin
-        clk=1'b0; rst_n=1'b0; valid_in=1'b0; mode_vec=96'd0;
-        use_mod=1'b0; modulus=0; mu_val=0; k_val=0;
+        clk=1'b0; rst_n=1'b0; valid_in=1'b0; mode_vec=128'd0;
+        use_mod=1'b0; modulus=0; mu_val=0; mu_mont=0; k_val=0;
         a_vec=0; b_vec=0; c_vec=0; w_vec=0;
         shuf_in=0; shuf_off=0; shuf_mode=0;
         errors=0; tests=0;
