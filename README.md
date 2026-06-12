@@ -64,9 +64,11 @@ Cycle 0       Cycle 1         Cycle 2          Cycle 3
 
 | File | Description |
 |------|-------------|
-| [`rtl/reconfig_fe.v`](rtl/reconfig_fe.v) | 10-mode fixed-point arithmetic element (Q16.16) |
-| [`rtl/reconfig_fe_array.v`](rtl/reconfig_fe_array.v) | 8-lane FE array |
-| [`rtl/reconfig_fft_operator.v`](rtl/reconfig_fft_operator.v) | Complex FFT butterfly operator |
+| [`rtl/spuv3_vpu_fe_f64_wrap.v`](rtl/spuv3_vpu_fe_f64_wrap.v) | SPUV3 320-bit VR / VMASK adapter for Falcon f64 FFT |
+| [`rtl/reconfig_fft_f64_shared_operator.v`](rtl/reconfig_fft_f64_shared_operator.v) | Area-oriented f64 FFT operator using shared FE |
+| [`rtl/reconfig_fe_f64_shared_array.v`](rtl/reconfig_fe_f64_shared_array.v) | Shared f64 FE array with lane mask and backpressure |
+| [`rtl/reconfig_fft_f64_pipe_operator.v`](rtl/reconfig_fft_f64_pipe_operator.v) | Higher-throughput pipelined f64 FFT operator |
+| [`rtl/reconfig_fft_f64_operator.v`](rtl/reconfig_fft_f64_operator.v) | Reference f64 FFT operator |
 
 ### RTL — NTT Operator
 
@@ -88,8 +90,16 @@ Cycle 0       Cycle 1         Cycle 2          Cycle 3
 | [`tb/tb_mlkem_ae.v`](tb/tb_mlkem_ae.v) | ML-KEM (FIPS 203) arithmetic verification |
 | [`tb/tb_mldsa_ae.v`](tb/tb_mldsa_ae.v) | ML-DSA (FIPS 204) arithmetic verification |
 | [`tb/tb_reconfig_ntt_operator.v`](tb/tb_reconfig_ntt_operator.v) | NTT operator 32-lane verification (Falcon q=12289) |
-| [`tb/tb_reconfig_fe.v`](tb/tb_reconfig_fe.v) | Fixed-point element verification |
-| [`tb/tb_reconfig_fft_operator.v`](tb/tb_reconfig_fft_operator.v) | FFT operator verification |
+| [`tb/tb_spuv3_vpu_fe_f64_wrap.v`](tb/tb_spuv3_vpu_fe_f64_wrap.v) | SPUV3 VMASK/VR adapter verification |
+| [`tb/tb_reconfig_fft_f64_shared_operator.v`](tb/tb_reconfig_fft_f64_shared_operator.v) | Shared f64 FFT operator verification |
+| [`tb/tb_reconfig_fe_f64_shared_array.v`](tb/tb_reconfig_fe_f64_shared_array.v) | Shared f64 FE array verification |
+
+### Archived Q16.16 Fixed-Point Prototype
+
+The early Q16.16 FE/FFT prototype has been moved to
+[`archive/q16_16_fixed_point`](archive/q16_16_fixed_point). It is kept for
+bring-up reference, but it is no longer part of the architecture-aligned main
+RTL file list.
 
 ## 16-Mode Reconfigurable AE
 
@@ -189,14 +199,12 @@ iverilog -g2012 -o sim/tb_ntt_op.vvp \
   rtl/reconfig_ae_array.v rtl/reconfig_ntt_operator.v \
   tb/tb_reconfig_ntt_operator.v && vvp sim/tb_ntt_op.vvp
 
-# Fixed-Point FE
-iverilog -g2012 -o sim/tb_fe.vvp \
-  rtl/reconfig_fe.v tb/tb_reconfig_fe.v && vvp sim/tb_fe.vvp
-
-# FFT Operator
-iverilog -g2012 -o sim/tb_fft_op.vvp \
-  rtl/reconfig_fe.v rtl/reconfig_fe_array.v rtl/reconfig_fft_operator.v \
-  tb/tb_reconfig_fft_operator.v && vvp sim/tb_fft_op.vvp
+# SPUV3 f64 FE adapter
+iverilog -g2001 -o sim/tb_spuv3_vpu_fe_f64_wrap.vvp \
+  rtl/falcon_f64_add.v rtl/falcon_f64_mul.v rtl/reconfig_fe_f64.v \
+  rtl/reconfig_fe_f64_shared_array.v rtl/reconfig_fft_f64_shared_operator.v \
+  rtl/spuv3_vpu_fe_f64_wrap.v tb/tb_spuv3_vpu_fe_f64_wrap.v && \
+  vvp sim/tb_spuv3_vpu_fe_f64_wrap.vvp
 ```
 
 ## NTT Performance

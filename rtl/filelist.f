@@ -12,9 +12,6 @@ rtl/reconfig_ae_array.v
 rtl/reconfig_ae_rf.v
 rtl/reconfig_ntt_operator.v
 rtl/reconfig_ntt_pipeline.v
-rtl/reconfig_fe.v
-rtl/reconfig_fe_array.v
-rtl/reconfig_fft_operator.v
 rtl/falcon_f64_add.v
 rtl/falcon_f64_mul.v
 rtl/reconfig_fe_f64.v
@@ -25,3 +22,4 @@ rtl/reconfig_fft_f64_operator.v
 rtl/reconfig_fft_f64_pipe_operator.v
 rtl/reconfig_fe_f64_shared_array.v
 rtl/reconfig_fft_f64_shared_operator.v
+rtl/spuv3_vpu_fe_f64_wrap.v
