@@ -99,6 +99,10 @@ spuv3_exu / XPqc dispatch
 
 工程上建议先采用“两拍搬运 + lane_mask”的方式验证功能，再根据面积和性能目标决定是否加入本地 FE buffer。
 
+当前第一版 SPUV3 接入采用更保守的 **VR 对齐 + 内部结果保持 + 分次 readback** 路线：FE wrapper 面向 320-bit VR 工作，一次覆盖最多 `5 x f64` lane；`w_im` 通过单独控制指令预加载，FE 结果先保存在 wrapper 内部，再通过读取指令分四次写回 `y0_re/y0_im/y1_re/y1_im`。这一路线不引入完整本地 FFT buffer，也不新增 VPU register file 写端口，适合作为真实 SPUV3 工程的 first integration。
+
+需要特别注意 `vmask` 与 f64 lane 的关系。SPUV3 VPU 是 `ELEN=32`、`LaneNum=10`，一个 f64 占两个 32-bit lane，因此 `vmask=10` 才表示 5 个 f64 lane 全开；`vmask=8` 只表示 4 个 f64 lane，适合 256-bit remap/BNPR 相关场景。FE wrapper 必须保证 inactive lane 清零或保持为明确无效状态，避免旧结果污染后续写回。
+
 ### 2.2 软件可见控制模型
 
 FE 扩展建议沿用 SPUV3 的 XPqc 思路，而不是把每个 f64 add/mul 暴露成普通浮点指令。推荐的软件可见任务粒度是：
@@ -111,6 +115,31 @@ FE 扩展建议沿用 SPUV3 的 XPqc 思路，而不是把每个 f64 add/mul 暴
 - `vfe.mov/store/load`：VR、DLM、FE buffer 之间搬运。
 
 这些指令可以映射到现有 VPU 类编码空间，也可以先通过 SFR/CSR command 方式 bring-up。无论采用哪种形式，硬件侧都应保留 `mode`、`inverse`、`lane_mask`、`valid_in`、`busy`、`valid_out`、`ready_in` 语义，便于后续接入 ordered commit 和 pipeline scoreboard。
+
+### 2.3 第一版 VPU FE 指令接入
+
+第一版建议直接走 VPU/XPqc 指令路径，而不是把 320-bit 数据面搬到 CSR。新增四条软件可见的 FE 控制/读取指令：
+
+| 指令 | 作用 | 是否写 VR |
+| --- | --- | --- |
+| `vffeloadwim` | 预加载 twiddle 虚部 `w_im` | 否 |
+| `vffestart` | 启动一次 FE butterfly 或 complex op | 否 |
+| `vfferead` | 从 FE wrapper 读取一组 320-bit 结果 | 是 |
+| `vffeclear` | 清空 FE wrapper 内部状态 | 否 |
+
+推荐汇编序列如下：
+
+```text
+vffeloadwim  v_tw_im
+vffestart    v_a_re, v_a_im, v_b_re, v_b_im, v_tw_re
+vfferead     v_y0_re, 0
+vfferead     v_y0_im, 1
+vfferead     v_y1_re, 2
+vfferead     v_y1_im, 3
+vffeclear
+```
+
+其中 `vfferead` 的 `read_sel` 含义是：`0 -> y0_re`、`1 -> y0_im`、`2 -> y1_re`、`3 -> y1_im`。`vffestart` 和 `vfferead` 按多周期 VPU 指令接入 `busy/done/stall` 互锁；只有 `vfferead` 产生 VR 写回。后续版本可在相同指令模型下继续扩展 task descriptor、twiddle cache 和本地 FE buffer。
 
 ## 3. 现有 VPU/NTT 整数路径
 
@@ -404,6 +433,10 @@ tb/
 - f64 shared FE 测试
 - shared FE backpressure 测试
 - shared FE lane_mask partial update 测试
+- SPUV3 320-bit VR/VMASK wrapper 测试
+- SPUV3 256-bit DLM/DPRAM row 到 320-bit VR 的 pack/unpack 测试
+- SPUV3 VPU FE first integration wrapper 测试
+- Falcon FFT/IFFT Python golden stage-vector 预验证
 
 典型通过输出：
 
@@ -411,9 +444,65 @@ tb/
 TB_PASS all f64 FE cases
 TB_PASS all pipelined f64 FE cases
 TB_PASS all shared f64 FFT operator cases
+TB_PASS spuv3 vpu fe f64 wrapper cases
+TB_PASS vpu fe unit cases
+TB_PASS vpu fe exu adapter cases
+TB_PASS spuv3 vpu fe mem pack cases
 TB_PASS all 2 NTT operator cases
 TB_PASS  All tests passed
 ```
+
+Falcon FFT/IFFT 的验证当前分成两层：
+
+```text
+RTL operator 层:
+  reconfig_fft_f64_operator / pipe / shared
+  覆盖 CT/GS butterfly 和 SPUV3 wrapper 小规模仿真
+
+Python golden 层:
+  script/falcon_fft_golden.py
+  script/verify_fft_golden.py
+  覆盖 Falcon-512 logn=9 的 FFT/IFFT stage-vector 与 round-trip
+
+RTL stage/batch 层:
+  falcon_fft_stage_ctrl / falcon_fft_addr_gen / falcon_fft_batch_exu
+  覆盖 Falcon-512 FFT/IFFT 与 Falcon-1024 FFT/IFFT 的 5-lane batch 对照
+
+RTL buffered engine 层:
+  falcon_fft_task_engine / falcon_fft_local_buffer
+  falcon_fft_twiddle_cache / falcon_fft_buffered_engine
+  覆盖 Falcon-512 与 Falcon-1024 FFT/IFFT 的 final-array 对照
+
+SPUV3 VPU FE first integration 层:
+  vpu_fe_unit / vpu_fe_exu_adapter
+  覆盖 VFFELOADWIM、VFFESTART、VFFEREAD、VFFECLEAR 的控制、stall/done、结果读回和非 READ 不写 VR 规则
+```
+
+当前已验证命令：
+
+```bash
+python script/verify_fft_golden.py --logn 9 --mode both
+python script/run_fft_batch_rtl_compare.py --logn 9 --mode both --backend shared
+python script/run_fft_batch_rtl_compare.py --logn 9 --mode both --backend pipe
+python script/run_fft_batch_rtl_compare.py --logn 10 --mode fft --backend shared
+python script/run_fft_batch_rtl_compare.py --logn 10 --mode fft --backend pipe
+python script/run_fft_batch_rtl_compare.py --logn 10 --mode ifft --backend shared
+python script/run_fft_batch_rtl_compare.py --logn 10 --mode ifft --backend pipe
+python script/run_fft_buffered_final_compare.py --logn 9 --mode fft --backend shared --max-abs 1e-11
+python script/run_fft_buffered_final_compare.py --logn 9 --mode ifft --backend shared --max-abs 1e-11
+python script/run_fft_buffered_final_compare.py --logn 9 --mode fft --backend pipe --max-abs 1e-11
+python script/run_fft_buffered_final_compare.py --logn 9 --mode ifft --backend pipe --max-abs 1e-11
+python script/run_fft_buffered_final_compare.py --logn 10 --mode fft --backend shared --max-abs 1e-11
+python script/run_fft_buffered_final_compare.py --logn 10 --mode ifft --backend shared --max-abs 1e-11
+python script/run_fft_buffered_final_compare.py --logn 10 --mode fft --backend pipe --max-abs 1e-11
+python script/run_fft_buffered_final_compare.py --logn 10 --mode ifft --backend pipe --max-abs 1e-11
+iverilog -g2012 -o sim/tb_vpu_fe_unit.vvp -f rtl/filelist.f tb/tb_vpu_fe_unit.v && vvp sim/tb_vpu_fe_unit.vvp
+iverilog -g2012 -o sim/tb_vpu_fe_exu_adapter.vvp -f rtl/filelist.f tb/tb_vpu_fe_exu_adapter.v && vvp sim/tb_vpu_fe_exu_adapter.vvp
+```
+
+结果为 `22/22` 个配置通过，`22528/22528` 个 butterfly 通过。batch 级 RTL 对照中，Falcon-512 FFT/IFFT shared 与 pipe backend 均通过 `416` 个 batch case，Falcon-1024 FFT/IFFT shared 与 pipe backend 均通过 `468` 个 batch case。buffered engine final-array 对照中，Falcon-512 FFT/IFFT 在 shared 与 pipe backend 下均通过 `abs <= 1e-11`，Falcon-1024 FFT/IFFT 在 shared 与 pipe backend 下均 bit-exact 通过。
+
+此前 Falcon-1024 FFT buffered final-array 的 `idx=0` mismatch 已定位并修复。根因是 `falcon_fft_addr_gen` 内部用 `ADDR_W=10` 保存 `n_val = 1 << logn`，当 `logn=10` 时 `1024` 溢出为 0，导致地址生成器在 Falcon-1024 下退化到无效地址。现在内部 `n_val` 扩为 `ADDR_W+1`，输出地址仍保持 10-bit scalar index。
 
 此外，新增 RTL 与 testbench 已按纯 Verilog-2001 规则检查。
 
@@ -421,13 +510,14 @@ TB_PASS  All tests passed
 
 后续可以继续推进以下方向：
 
+0. 先完成 VPU FE first integration 在真实 SPUV3 RTL 中的落地，包括 `vpu_pkg.sv`、`spuv3_defines.vh`、`vpu_decode.sv`、`vpu_op_dispatch`、`vpu_exu.sv` 和汇编器的同步修改。
 1. 将 `reconfig_fe_f64_shared_array` 的共享 lane 从 reference FE 切换到 pipelined FE。
 2. 增加 twiddle special-case bypass，例如 `1+0i`、`0+1i`、`-1+0i`、`0-1i`。
 3. 给 FFT/NTT stage 加更完整的 input/output permutation network。
-4. 引入 arithmetic cache，专门存 twiddle，减少主 buffer 端口压力。
-5. 增加 task descriptor，包括 mode、lane_mask、source/destination bank、streaming 标志。
-6. 将 FE operator 接入 SPUV3 VPU/XPqc task scheduler，并复用现有 NTT 调度路径。
-7. 增加更完整的 Falcon FFT/iFFT stage-level test。
+4. 继续完善 twiddle cache，包括特殊值 bypass、越界保护和多参数表选择。
+5. 增加正式 task descriptor，包括 mode、lane_mask、source/destination bank、streaming 标志。
+6. 将 `falcon_fft_buffered_engine` 接入 SPUV3 VPU/XPqc task scheduler，并复用现有 NTT 调度路径。
+7. 在接入真实 DLM/DPRAM 后增加 preload/drain 带宽、bank conflict 和吞吐统计。
 
 ## 12. 总结
 

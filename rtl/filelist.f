@@ -22,5 +22,14 @@ rtl/reconfig_fft_f64_operator.v
 rtl/reconfig_fft_f64_pipe_operator.v
 rtl/reconfig_fe_f64_shared_array.v
 rtl/reconfig_fft_f64_shared_operator.v
+rtl/vpu_fe_unit.v
+rtl/vpu_fe_exu_adapter.v
+rtl/falcon_fft_addr_gen.v
+rtl/falcon_fft_stage_ctrl.v
+rtl/falcon_fft_batch_exu.v
+rtl/falcon_fft_task_engine.v
+rtl/falcon_fft_local_buffer.v
+rtl/falcon_fft_twiddle_cache.v
+rtl/falcon_fft_buffered_engine.v
 rtl/spuv3_vpu_fe_mem_pack.v
 rtl/spuv3_vpu_fe_f64_wrap.v

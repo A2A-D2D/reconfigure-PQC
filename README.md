@@ -66,6 +66,13 @@ Cycle 0       Cycle 1         Cycle 2          Cycle 3
 |------|-------------|
 | [`rtl/spuv3_vpu_fe_f64_wrap.v`](rtl/spuv3_vpu_fe_f64_wrap.v) | SPUV3 320-bit VR / VMASK adapter for Falcon f64 FFT |
 | [`rtl/spuv3_vpu_fe_mem_pack.v`](rtl/spuv3_vpu_fe_mem_pack.v) | 256-bit DLM/DPRAM row packer for 320-bit VR/FE vectors |
+| [`rtl/falcon_fft_stage_ctrl.v`](rtl/falcon_fft_stage_ctrl.v) | Falcon FFT/iFFT stage and batch task controller |
+| [`rtl/falcon_fft_addr_gen.v`](rtl/falcon_fft_addr_gen.v) | Falcon forward/iFFT butterfly address and GM index generator |
+| [`rtl/falcon_fft_batch_exu.v`](rtl/falcon_fft_batch_exu.v) | 5-lane batch EXU wrapper around the shared f64 BFU |
+| [`rtl/falcon_fft_task_engine.v`](rtl/falcon_fft_task_engine.v) | Task-level FFT engine shell with load/execute/store handshakes |
+| [`rtl/falcon_fft_local_buffer.v`](rtl/falcon_fft_local_buffer.v) | Two-bank local f64 complex buffer for stage-to-stage ping-pong |
+| [`rtl/falcon_fft_twiddle_cache.v`](rtl/falcon_fft_twiddle_cache.v) | Independent lane-wide GM twiddle cache with iFFT conjugation |
+| [`rtl/falcon_fft_buffered_engine.v`](rtl/falcon_fft_buffered_engine.v) | Buffered FFT engine tying task control, local buffer, twiddle cache, and FE backend |
 | [`rtl/reconfig_fft_f64_shared_operator.v`](rtl/reconfig_fft_f64_shared_operator.v) | Area-oriented f64 FFT operator using shared FE |
 | [`rtl/reconfig_fe_f64_shared_array.v`](rtl/reconfig_fe_f64_shared_array.v) | Shared f64 FE array with lane mask and backpressure |
 | [`rtl/reconfig_fft_f64_pipe_operator.v`](rtl/reconfig_fft_f64_pipe_operator.v) | Higher-throughput pipelined f64 FFT operator |
@@ -93,6 +100,10 @@ Cycle 0       Cycle 1         Cycle 2          Cycle 3
 | [`tb/tb_reconfig_ntt_operator.v`](tb/tb_reconfig_ntt_operator.v) | NTT operator 32-lane verification (Falcon q=12289) |
 | [`tb/tb_spuv3_vpu_fe_f64_wrap.v`](tb/tb_spuv3_vpu_fe_f64_wrap.v) | SPUV3 VMASK/VR adapter verification |
 | [`tb/tb_spuv3_vpu_fe_mem_pack.v`](tb/tb_spuv3_vpu_fe_mem_pack.v) | 256-bit memory row to 320-bit vector pack/unpack verification |
+| [`tb/tb_falcon_fft_addr_gen.v`](tb/tb_falcon_fft_addr_gen.v) | Falcon FFT/iFFT address generator verification |
+| [`tb/tb_falcon_fft_stage_ctrl.v`](tb/tb_falcon_fft_stage_ctrl.v) | Falcon-512 stage/batch controller verification |
+| [`tb/tb_falcon_fft_task_engine_smoke.v`](tb/tb_falcon_fft_task_engine_smoke.v) | Task engine load/execute/store smoke verification |
+| [`tb/tb_falcon_fft_buffered_engine_smoke.v`](tb/tb_falcon_fft_buffered_engine_smoke.v) | Local-buffered FFT engine smoke verification |
 | [`tb/tb_reconfig_fft_f64_shared_operator.v`](tb/tb_reconfig_fft_f64_shared_operator.v) | Shared f64 FFT operator verification |
 | [`tb/tb_reconfig_fe_f64_shared_array.v`](tb/tb_reconfig_fe_f64_shared_array.v) | Shared f64 FE array verification |
 
@@ -158,7 +169,11 @@ All modes operate on `WORD_W=32` with 3-stage pipeline. `MODE_W=4`.
 
 ## Verification Results
 
-All testbenches pass with 100% coverage across all modes and PQC parameter sets.
+Current RTL testbenches pass for the implemented arithmetic operators,
+wrapper-level Falcon f64 paths, and the Falcon FFT stage/batch/address control
+layer.  Golden batch files are now driven into RTL at the 5-lane batch EXU
+boundary with active-lane comparison.  The local-buffered multi-stage RTL engine
+now passes final-array comparison for Falcon-512 and Falcon-1024 FFT/IFFT.
 
 ```
 ML-KEM (FIPS 203, q=3329):    30/30 checks passed
@@ -166,6 +181,9 @@ ML-DSA (FIPS 204, q=8380417): 28/28 checks passed
 Falcon NTT (q=12289):         64/64 lane-results (2 cases × 32 lanes)
 Fixed-Point FE:               10/10 modes passed
 FFT Operator:                 2/2 cases (8 lanes each)
+Falcon FFT/IFFT golden:        logn=9 both modes, 22528/22528 butterflies
+Falcon RTL batch compare:      shared+pipe backends, logn=9 FFT/IFFT 416 cases, logn=10 FFT/IFFT 468 cases
+Falcon buffered final compare: logn=9 FFT/IFFT abs <= 1e-11, logn=10 FFT/IFFT bit-exact
 ```
 
 ### Tested Arithmetic Operations
@@ -179,6 +197,11 @@ FFT Operator:                 2/2 cases (8 lanes each)
 - ✅ 64-bit multiply-accumulate chain (modes 5,6,7)
 - ✅ Complex fixed-point CT/GS butterflies (FE modes 0,1)
 - ✅ Complex multiply, square, MAC (FE modes 2–9)
+- ✅ Falcon f64 CT/GS operator smoke tests
+- ✅ Falcon FFT/IFFT Python golden stage-vector checks (`logn=9`)
+- ✅ Falcon FFT stage/address controller and active-lane RTL batch compare
+- ✅ Local ping-pong buffer, twiddle cache, and buffered task-engine smoke path
+- ✅ Full multi-stage Falcon-512/Falcon-1024 FFT/IFFT RTL final-array comparison
 
 ## Simulation
 
@@ -212,6 +235,24 @@ iverilog -g2001 -o sim/tb_spuv3_vpu_fe_f64_wrap.vvp \
 iverilog -g2001 -o sim/tb_spuv3_vpu_fe_mem_pack.vvp \
   rtl/spuv3_vpu_fe_mem_pack.v tb/tb_spuv3_vpu_fe_mem_pack.v && \
   vvp sim/tb_spuv3_vpu_fe_mem_pack.vvp
+
+# Falcon FFT/IFFT golden pre-verification
+python script/verify_fft_golden.py --logn 9 --mode both
+
+# Falcon FFT batch vectors against RTL batch EXU
+python script/run_fft_batch_rtl_compare.py --logn 9 --mode both
+python script/run_fft_batch_rtl_compare.py --logn 10 --mode fft
+python script/run_fft_batch_rtl_compare.py --logn 10 --mode ifft
+
+# Performance backend check
+python script/run_fft_batch_rtl_compare.py --logn 9 --mode both --backend pipe
+python script/run_fft_batch_rtl_compare.py --logn 10 --mode both --backend pipe
+
+# Buffered engine final-array checks
+python script/run_fft_buffered_final_compare.py --logn 9 --mode fft --backend shared --max-abs 1e-11
+python script/run_fft_buffered_final_compare.py --logn 9 --mode ifft --backend pipe --max-abs 1e-11
+python script/run_fft_buffered_final_compare.py --logn 10 --mode fft --backend shared --max-abs 1e-11
+python script/run_fft_buffered_final_compare.py --logn 10 --mode ifft --backend pipe --max-abs 1e-11
 ```
 
 ## NTT Performance

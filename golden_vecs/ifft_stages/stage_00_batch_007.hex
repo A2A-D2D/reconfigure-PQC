@@ -1,0 +1,8 @@
+# Stage 0 Batch 7 -- IFFT
+# lanes: 5 active in this batch
+
+# va_re           va_im           vb_re           vb_im           tw_re           tw_im
+3fbbc0adc2fe7ef0bf98dcc1a2305e40bfbce6f46b9e1fa03fe60ccce83b1b463faf5b37832a7a80 3fdc0ca19da87abc3fd3eb1aef7a8a7cbfebd8582fbf33243fedcc4fb5b0366ebfeac2732c176b5e 3fc49419311762003fe167efbff2b5243fc7a1c377d7ccc0bfe40280cf8ab24c3fd64842e825bd08 3fc53830756a4208bfeffd55e95a1dd4bfd1737bc8458db43fea922e17b817863fd27dbcab8891e4 bfee31eae870cc763fd530d880af3b9fbfdbb7cf2304bbe33fecd7d9898b32e7bfe7d7836cc33c8d bfd530d880af3af6bfee31eae870cd67bfecd7d9898b31cdbfdbb7cf2304bcf1bfe5581038975032
+
+# y0_re           y0_im           y1_re           y1_im
+3fd13a38094b50bc3fe0a109b2e132323fb25c92841179e03fb05260c58347d03fda33a9d88b0c58 3fe3545cec2ecde0bfe607c8719cd896bff2490b09f0fcff3ffc2f3ee6b426fabfe18394d653226c 3fc1df73941969083ff0c7f31ee2f838bfda38522f7e56183ff3a771cc0a3715bfe12cbea86e320e bfceb15109780af73fef0bfc50a17ca23fe0dcb05f0c48c0bfde9d3d8034dee13ff07995e9f7d2d9

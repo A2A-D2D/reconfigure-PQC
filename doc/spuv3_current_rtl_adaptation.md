@@ -67,3 +67,34 @@ DLM/DPRAM rows
   -> reconfig_fe_f64_shared_array
   -> reconfig_fe_f64
 ```
+
+## Falcon FFT/IFFT Verification Boundary
+
+Current RTL simulation covers the FE operator and SPUV3 wrapper boundary:
+
+- `tb_reconfig_fft_f64_operator.v`
+- `tb_reconfig_fft_f64_pipe_operator.v`
+- `tb_reconfig_fft_f64_shared_operator.v`
+- `tb_spuv3_vpu_fe_f64_wrap.v`
+- `tb_spuv3_vpu_fe_mem_pack.v`
+
+The Falcon parameter-level golden flow is provided separately:
+
+```text
+script/falcon_fft_golden.py
+script/verify_fft_golden.py
+golden_vecs/
+golden_vecs_1024/
+gm_rom_re.hex / gm_rom_im.hex
+```
+
+`python script/verify_fft_golden.py --logn 9 --mode both` verifies Falcon-512
+FFT/IFFT stage vectors against the RTL-equivalent CT/GS butterfly formulas.
+The current status is therefore:
+
+```text
+operator-level RTL:          simulated
+SPUV3 wrapper-level RTL:     simulated
+Falcon stage-vector golden:  generated and pre-verified
+full multi-stage RTL FFT:    pending stage wrapper / testbench integration
+```

@@ -95,6 +95,8 @@ spuv3_vpu_fe_wrap
     +-- output unpacker / writeback / commit
 ```
 
+当前 first integration 决策是：FE 先作为 VPU 多周期子执行单元接入，不采用 CSR 数据面搬运，也不在第一版引入完整本地 FFT buffer。软件可见接口收敛为 `vffeloadwim`、`vffestart`、`vfferead`、`vffeclear` 四条 VPU FE 指令；其中只有 `vfferead` 写回 VR。
+
 ## 5. FE 阵列功能范围
 
 FE 阵列面向 Falcon 的 fpr/f64 复数计算，建议支持以下任务级模式：
@@ -144,6 +146,8 @@ SPUV3 VPU 的 VR 宽度是 320-bit，天然可容纳 `5 x 64-bit` f64 lane。当
 
 短期建议采用 `LANES=8` + `lane_mask`，快速复用现有 RTL 和 testbench。长期建议增加 FE local buffer 与 twiddle cache，减少多 stage FFT/IFFT 对 VR/DLM 的带宽压力。
 
+在真实 SPUV3 VPU 接入的第一版中，优先采用 320-bit VR 对齐方式：一个 VR 可容纳 `5 x f64` lane，`vmask=10` 表示 5 个 f64 lane 全开，`vmask=8` 只表示 4 个 f64 lane。`w_im` 通过 `vffeloadwim` 预加载到 FE wrapper，`vffestart` 使用 5 个 320-bit operand 启动计算，结果通过 `vfferead` 分四次读回 `y0_re/y0_im/y1_re/y1_im`。
+
 ## 8. 当前阶段成果
 
 当前工程已经完成以下原型和文档工作：
@@ -153,6 +157,9 @@ SPUV3 VPU 的 VR 宽度是 320-bit，天然可容纳 `5 x 64-bit` f64 lane。当
 - 实现 f64 reference FE、pipelined FE、shared FE 三种后端。
 - 实现 f64 FFT operator 的 reference、pipeline、shared 三种封装。
 - shared FE 支持 `lane_mask`、`ready_in`、busy/valid、直接输出聚合。
+- 增加 SPUV3 320-bit VR/VMASK wrapper 和 256-bit DLM/DPRAM row packer。
+- 增加 `vpu_fe_unit` 与 `vpu_fe_exu_adapter`，验证 FE 作为 VPU 多周期子执行单元的 first integration 路径。
+- 增加 Falcon FFT/IFFT Python golden stage-vector 生成与预验证脚本。
 - 补充 SPUV3 FE 阵列扩展设计文档和架构说明。
 
 已有验证重点包括：
@@ -161,8 +168,16 @@ SPUV3 VPU 的 VR 宽度是 320-bit，天然可容纳 `5 x 64-bit` f64 lane。当
 - f64 pipelined FE 模式。
 - shared FE backpressure。
 - shared FE `lane_mask` 局部更新。
+- VPU FE first integration wrapper 与 EXU adapter。
 - f64 FFT operator CT/GS 基本路径。
 - NTT operator CT/GS 基本路径。
+- SPUV3 wrapper 和 memory packer 基本路径。
+- Falcon-512 `logn=9` FFT/IFFT golden stage-vector 预验证。
+
+当前 `python script/verify_fft_golden.py --logn 9 --mode both` 已通过
+`22/22` 个配置、`22528/22528` 个 butterfly。这个结果说明 golden model
+与 RTL 等价 CT/GS butterfly 公式一致；完整多 stage RTL pipeline 的端到端
+仿真仍需要下一步把 batch 向量接入 RTL testbench。
 
 ## 9. 关键风险
 
@@ -172,22 +187,23 @@ SPUV3 VPU 的 VR 宽度是 320-bit，天然可容纳 `5 x 64-bit` f64 lane。当
 |---|---|---|
 | VR 宽度不匹配 | SPUV3 VR 为 320-bit，当前 FE 原型常用 512-bit | 先做 pack/unpack wrapper，再评估 `LANES=5` |
 | 数据搬运瓶颈 | FFT/IFFT 多 stage 会频繁访问向量和 twiddle | 增加 FE local buffer 和 twiddle cache |
-| 指令接口未收敛 | 当前 FE 仍是原型接口 | 先用 SFR/CSR command bring-up，再固化 XPqc VFE 指令 |
+| 指令接口未收敛 | 当前 FE 仍是原型接口 | 第一版先固化 `vffeloadwim/vffestart/vfferead/vffeclear` 四条 VPU FE 指令，再扩展 task descriptor |
 | commit 互锁 | FE task 多周期，需与 SPUV3 ordered commit 对齐 | 在 wrapper 中加入 busy/done/ready 互锁 |
-| 数值验证不足 | Falcon f64 FFT 对精度和舍入敏感 | 引入 Falcon FFT/IFFT stage 级参考模型 |
+| RTL 端到端验证不足 | 已有 Falcon FFT/IFFT golden stage-vector，但还需 RTL stage/end-to-end 驱动 | 用 `golden_vecs/` batch 文件驱动 FE operator 与 stage wrapper |
 
 ## 10. 下一步计划
 
 建议按以下顺序推进：
 
-1. 新增 `spuv3_vpu_fe_wrap`，把现有 FE operator 包装成 SPUV3 可接入接口。
-2. 实现 VR/DLM 到 FE 输入向量的 pack/unpack。
-3. 先支持 `LANES=8` + `lane_mask`，保证当前 RTL 快速进入系统 bring-up。
-4. 增加 `LANES=5` 配置测试，评估与 320-bit VR 单拍对齐的代价。
-5. 将 shared FE 的物理 lane 从 reference FE 切换为 pipelined FE，降低 critical path。
-6. 增加 twiddle cache、特殊 twiddle bypass 和 FFT/IFFT permutation helper。
-7. 把 SFR/CSR command 收敛为正式 XPqc VFE 指令编码。
-8. 用 Falcon FFT/IFFT 多 stage 测试验证端到端正确性。
+1. 将 `vpu_fe_unit` 与 `vpu_fe_exu_adapter` 接入真实 `vpu_exu`。
+2. 修改 `vpu_pkg.sv`、`spuv3_defines.vh`、`vpu_decode.sv` 和 `vpu_op_dispatch`，加入四条 VPU FE 指令。
+3. 修改汇编器/反汇编器，支持 `vffeloadwim/vffestart/vfferead/vffeclear`。
+4. 修正 VPU 写回路径中数据 OR 合并的风险，改为明确 mux。
+5. 增加真实 SPUV3 decode collision、EXU stall/done 和汇编级 smoke test。
+6. 将 shared FE 的物理 lane 从 reference FE 切换为 pipelined FE，降低 critical path。
+7. 增加 twiddle cache、特殊 twiddle bypass 和 FFT/IFFT permutation helper。
+8. 评估 FE local buffer 与 DLM/DPRAM preload/drain，统计 bank conflict 和吞吐。
+9. 用 Falcon FFT/IFFT 多 stage RTL 测试验证端到端正确性。
 
 ## 11. 汇报结论
 
@@ -199,5 +215,6 @@ SPUV3 VPU 的 VR 宽度是 320-bit，天然可容纳 `5 x 64-bit` f64 lane。当
 - 新增 FE 直接对准 Falcon 的关键缺口。
 - 保留 reference、pipeline、shared 三档实现，便于在面积和性能之间取舍。
 - 延续 SPUV3 的 XPqc、CSR/SFR、VR/DLM/DPRAM 和 ordered commit 模型。
+- 第一版已经把接入边界收敛到 VPU 多周期指令模型，避免 CSR 数据面搬运和过早引入大 local buffer。
 
 最终目标是把 SPUV3 从“面向 Kyber/Dilithium 的整数向量 RCE”，扩展为“同时覆盖 NTT 与 Falcon FFT 的可重构 PQC RCE”。

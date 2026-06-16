@@ -168,6 +168,20 @@ Tag 流水线同时承担三个职责：
 
 ST_IDLE 中 `first_active_sel` 决定第一个发送的 lane；ST_RUN 中 `next_active_sel` 决定后续发送的 lane。未使能的 lane 完全跳过，其对应的输出寄存器保留旧值（不清零）。
 
+接入 SPUV3 VPU 时需要在外层 wrapper 中额外处理 inactive lane。`reconfig_fe_f64_shared_array` 保留旧值是为了支持局部更新语义，但 VPU FE first integration 的读回结果会直接写入 320-bit VR，因此 wrapper 应在捕获结果时按 `vmask` 对 inactive f64 lane 清零，避免旧结果通过 `VFFEREAD` 写回寄存器文件。
+
+SPUV3 VPU 的 VR 宽度为 320-bit，即 10 个 32-bit lane。f64 数据每个 lane 占两个 32-bit lane：
+
+```text
+f64 lane 0 -> bits [63:0]
+f64 lane 1 -> bits [127:64]
+f64 lane 2 -> bits [191:128]
+f64 lane 3 -> bits [255:192]
+f64 lane 4 -> bits [319:256]
+```
+
+因此 `vmask=10` 表示 5 个 f64 lane 全开，`vmask=8` 只表示 4 个 f64 lane。第一版 `vpu_fe_unit` 使用 320-bit 输入输出，并将 `vmask` 转换为 f64 lane mask 后驱动 shared FE。
+
 **稀疏掩码示例**：`lane_mask = 8'b1000_0101`（lane 0, 2, 7 使能）
 
 ```
@@ -375,6 +389,43 @@ reconfig_fe_f64_shared_array #(
     .FE_LATENCY(3)  // 匹配流水线化 FE 的延迟
 ) u_fe_array (...);
 ```
+
+### 7.4 SPUV3 VPU FE first integration
+
+第一版 SPUV3 VPU 接入使用两个 wrapper：
+
+| 模块 | 作用 |
+| --- | --- |
+| `vpu_fe_unit` | 持有 shared FE、`w_im` 保持寄存器和四组结果保持寄存器 |
+| `vpu_fe_exu_adapter` | 放在 `vpu_exu` 内，将 VPU FE 指令转换为 FE command/stall/done/writeback |
+
+VPU EXU 当前可直接提供 5 个 320-bit operand，分别映射为：
+
+```text
+operand_a_i -> a_re
+operand_b_i -> a_im
+operand_c_i -> b_re
+operand_d_i -> b_im
+operand_e_i -> w_re
+```
+
+`w_im` 是第六组 320-bit 数据，第一版通过 `VFFELOADWIM` 提前加载到 `vpu_fe_unit` 内部：
+
+```text
+VFFELOADWIM: operand_e_i -> w_im_hold
+VFFESTART  : 使用 operand_e_i 作为 w_re，并使用 w_im_hold 作为 w_im
+```
+
+计算完成后，wrapper 保存：
+
+```text
+y0_re
+y0_im
+y1_re
+y1_im
+```
+
+软件通过 `VFFEREAD read_sel` 分四次读回结果，只有 `VFFEREAD` 写 VR。`VFFELOADWIM`、`VFFESTART`、`VFFECLEAR` 均为控制类操作，不写 VR。
 
 ---
 
