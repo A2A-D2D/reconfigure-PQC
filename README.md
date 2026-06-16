@@ -64,8 +64,8 @@ Cycle 0       Cycle 1         Cycle 2          Cycle 3
 
 | File | Description |
 |------|-------------|
-| [`rtl/spuv3_vpu_fe_f64_wrap.v`](rtl/spuv3_vpu_fe_f64_wrap.v) | SPUV3 320-bit VR / VMASK adapter for Falcon f64 FFT |
-| [`rtl/spuv3_vpu_fe_mem_pack.v`](rtl/spuv3_vpu_fe_mem_pack.v) | 256-bit DLM/DPRAM row packer for 320-bit VR/FE vectors |
+| [`rtl/spuv3_vpu_fe_f64_wrap.v`](rtl/spuv3_vpu_fe_f64_wrap.v) | 320-bit vector register adapter for Falcon f64 FFT |
+| [`rtl/spuv3_vpu_fe_mem_pack.v`](rtl/spuv3_vpu_fe_mem_pack.v) | 256-bit memory row packer for 320-bit vector data |
 | [`rtl/falcon_fft_stage_ctrl.v`](rtl/falcon_fft_stage_ctrl.v) | Falcon FFT/iFFT stage and batch task controller |
 | [`rtl/falcon_fft_addr_gen.v`](rtl/falcon_fft_addr_gen.v) | Falcon forward/iFFT butterfly address and GM index generator |
 | [`rtl/falcon_fft_batch_exu.v`](rtl/falcon_fft_batch_exu.v) | 5-lane batch EXU wrapper around the shared f64 BFU |
@@ -98,7 +98,7 @@ Cycle 0       Cycle 1         Cycle 2          Cycle 3
 | [`tb/tb_mlkem_ae.v`](tb/tb_mlkem_ae.v) | ML-KEM (FIPS 203) arithmetic verification |
 | [`tb/tb_mldsa_ae.v`](tb/tb_mldsa_ae.v) | ML-DSA (FIPS 204) arithmetic verification |
 | [`tb/tb_reconfig_ntt_operator.v`](tb/tb_reconfig_ntt_operator.v) | NTT operator 32-lane verification (Falcon q=12289) |
-| [`tb/tb_spuv3_vpu_fe_f64_wrap.v`](tb/tb_spuv3_vpu_fe_f64_wrap.v) | SPUV3 VMASK/VR adapter verification |
+| [`tb/tb_spuv3_vpu_fe_f64_wrap.v`](tb/tb_spuv3_vpu_fe_f64_wrap.v) | Vector register adapter verification |
 | [`tb/tb_spuv3_vpu_fe_mem_pack.v`](tb/tb_spuv3_vpu_fe_mem_pack.v) | 256-bit memory row to 320-bit vector pack/unpack verification |
 | [`tb/tb_falcon_fft_addr_gen.v`](tb/tb_falcon_fft_addr_gen.v) | Falcon FFT/iFFT address generator verification |
 | [`tb/tb_falcon_fft_stage_ctrl.v`](tb/tb_falcon_fft_stage_ctrl.v) | Falcon-512 stage/batch controller verification |
@@ -223,18 +223,6 @@ iverilog -g2012 -o sim/tb_ntt_op.vvp \
   rtl/barrett_reduce.v rtl/montgomery_reduce.v rtl/reconfig_ae.v \
   rtl/reconfig_ae_array.v rtl/reconfig_ntt_operator.v \
   tb/tb_reconfig_ntt_operator.v && vvp sim/tb_ntt_op.vvp
-
-# SPUV3 f64 FE adapter
-iverilog -g2001 -o sim/tb_spuv3_vpu_fe_f64_wrap.vvp \
-  rtl/falcon_f64_add.v rtl/falcon_f64_mul.v rtl/reconfig_fe_f64.v \
-  rtl/reconfig_fe_f64_shared_array.v rtl/reconfig_fft_f64_shared_operator.v \
-  rtl/spuv3_vpu_fe_f64_wrap.v tb/tb_spuv3_vpu_fe_f64_wrap.v && \
-  vvp sim/tb_spuv3_vpu_fe_f64_wrap.vvp
-
-# SPUV3 256-bit memory row packer for 320-bit FE vectors
-iverilog -g2001 -o sim/tb_spuv3_vpu_fe_mem_pack.vvp \
-  rtl/spuv3_vpu_fe_mem_pack.v tb/tb_spuv3_vpu_fe_mem_pack.v && \
-  vvp sim/tb_spuv3_vpu_fe_mem_pack.vvp
 
 # Falcon FFT/IFFT golden pre-verification
 python script/verify_fft_golden.py --logn 9 --mode both

@@ -1,0 +1,11 @@
+# Documentation (detailed docs not uploaded to GitHub)
+doc/
+
+# Simulation artifacts
+sim/*.vvp
+sim/*.vcd
+sim/*.out
+
+# Python cache
+__pycache__/
+*.pyc
