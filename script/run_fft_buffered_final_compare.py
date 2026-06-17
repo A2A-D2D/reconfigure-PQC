@@ -15,6 +15,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+RTL_FILELIST = ROOT / "rtl" / "filelist.f"
 LINE_RE = re.compile(r"\[\s*(\d+)\]\s+re=0x([0-9a-fA-F]{16})\s+im=0x([0-9a-fA-F]{16})")
 
 
@@ -218,7 +219,7 @@ def main():
                  input_values, expected_values, tb_path)
 
     subprocess.check_call(
-        ["iverilog", "-g2012", "-o", str(out_path), "-f", str(ROOT / "rtl" / "filelist.f"), str(tb_path)],
+        ["iverilog", "-g2012", "-o", str(out_path), "-f", str(RTL_FILELIST), str(tb_path)],
         cwd=ROOT,
     )
     subprocess.check_call(["vvp", str(out_path)], cwd=ROOT)

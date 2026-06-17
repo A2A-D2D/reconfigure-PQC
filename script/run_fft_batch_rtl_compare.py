@@ -16,6 +16,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+RTL_FILELIST = ROOT / "rtl" / "filelist.f"
 
 
 def parse_batch_file(path: Path, inverse: bool):
@@ -193,7 +194,7 @@ def main():
     out_path = sim_dir / f"{stem}.vvp"
     emit_verilog(cases, tb_path, backend)
 
-    cmd_compile = ["iverilog", "-g2012", "-o", str(out_path), "-f", str(ROOT / "rtl" / "filelist.f"), str(tb_path)]
+    cmd_compile = ["iverilog", "-g2012", "-o", str(out_path), "-f", str(RTL_FILELIST), str(tb_path)]
     subprocess.check_call(cmd_compile, cwd=ROOT)
     subprocess.check_call(["vvp", str(out_path)], cwd=ROOT)
 

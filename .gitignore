@@ -5,6 +5,7 @@ doc/
 sim/*.vvp
 sim/*.vcd
 sim/*.out
+sim/script_runs/
 
 # Python cache
 __pycache__/
